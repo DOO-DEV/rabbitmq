@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"log"
 )
 
 type RabbitMQClient struct {
@@ -23,6 +24,11 @@ func ConnectRabbitMQ(username, password, host, vhost string) (*amqp.Connection, 
 func NewRabbitMQClient(conn *amqp.Connection) (RabbitMQClient, error) {
 	ch, err := conn.Channel()
 	if err != nil {
+		return RabbitMQClient{}, err
+	}
+
+	// Puts the Channel in confirm mode, which will allow waiting for ACK or NACK from the receiver
+	if err := ch.Confirm(false); err != nil {
 		return RabbitMQClient{}, err
 	}
 
@@ -62,4 +68,36 @@ func (rc RabbitMQClient) Send(ctx context.Context, exchange, routingKey string, 
 		false,   // immediate
 		options, // amqp publishing struct
 	)
+}
+
+// Consume is a wrapper around consume, it will return a Channel that can be used to digest messages
+// Queue is the name of the queue to Consume
+// Consumer is a unique identifier for the service instance that is consuming, can be used to cancel etc
+// autoAck is important to understand, if set to true, it will automatically Acknowledge that processing is done
+// This is good, but remember that if the Process fails before completion, then an ACK is already sent, making a message lost
+// if not handled properly
+func (rc RabbitMQClient) Consume(queue, consumer string, autoAck bool) (<-chan amqp.Delivery, error) {
+	return rc.ch.Consume(queue, consumer, autoAck, false, false, false, nil)
+}
+
+// SendWithConfirm is used to publish a payload onto an exchange with a given routingkey
+func (rc RabbitMQClient) SendWithConfirm(ctx context.Context, exchange, routingKey string, options amqp.Publishing) error {
+	// PublishWithDeferredConfirmWithContext will wait for server to ACK the message
+	confirmation, err := rc.ch.PublishWithDeferredConfirmWithContext(ctx,
+		exchange,   // exchange
+		routingKey, // routing key
+		// Mandatory is used when we HAVE to have the message return an error, if there is no route or queue then
+		// setting this to true will make the message bounce back
+		// If this is False, and the message fails to deliver, it will be dropped
+		true, // mandatory
+		// immediate Removed in MQ 3 or up https://blog.rabbitmq.com/posts/2012/11/breaking-things-with-rabbitmq-3-0§
+		false,   // immediate
+		options, // amqp publishing struct
+	)
+	if err != nil {
+		return err
+	}
+	// Blocks until ACK from Server is receieved
+	log.Println(confirmation.Wait())
+	return nil
 }

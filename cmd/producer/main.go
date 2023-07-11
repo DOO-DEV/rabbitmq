@@ -40,13 +40,26 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	// Create customer from sweden
-	if err := client.Send(ctx, "customer_event", "customers.created.se", amqp091.Publishing{
-		ContentType:  "text/plain",       // The payload we send is plaintext, could be JSON or others..
-		DeliveryMode: amqp091.Persistent, // This tells rabbitMQ that this message should be Saved if no resources accepts it before a restart (durable)
-		Body:         []byte("An cool message between services"),
-	}); err != nil {
-		panic(err)
+	for i := 0; i < 10; i++ {
+		if err := client.Send(ctx, "customer_event", "customers.created.se", amqp091.Publishing{
+			ContentType:  "text/plain",       // The payload we send is plaintext, could be JSON or others..
+			DeliveryMode: amqp091.Persistent, // This tells rabbitMQ that this message should be Saved if no resources accepts it before a restart (durable)
+			Body:         []byte("An cool message between services"),
+		}); err != nil {
+			panic(err)
+		}
 	}
+
+	for i := 0; i < 10; i++ {
+		if err := client.SendWithConfirm(ctx, "customer_event", "customers.created.se", amqp091.Publishing{
+			ContentType:  "text/plain",       // The payload we send is plaintext, could be JSON or others..
+			DeliveryMode: amqp091.Persistent, // This tells rabbitMQ that this message should be Saved if no resources accepts it before a restart (durable)
+			Body:         []byte("An cool message between services"),
+		}); err != nil {
+			panic(err)
+		}
+	}
+
 	if err := client.Send(ctx, "customer_event", "customers.test", amqp091.Publishing{
 		ContentType:  "text/plain",
 		DeliveryMode: amqp091.Transient, // This tells rabbitMQ that this message can be deleted if no resources accepts it before a restart (non durable)
@@ -54,8 +67,6 @@ func main() {
 	}); err != nil {
 		panic(err)
 	}
-
-	time.Sleep(time.Second * 30)
 
 	log.Println(client)
 }
